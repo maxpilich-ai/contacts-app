@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contacts App — Max</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="style.css">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<!-- AUTH PAGE (Login/Signup) -->
+<div id="authPage" class="auth-page">
+  <div class="auth-card">
+    <h1>Contacts <span>Manager</span></h1>
+    <p class="subtitle">Sign in to manage your contacts database</p>
+
+    <div id="authError" class="auth-error" style="display:none"></div>
+    <div id="authSuccess" class="auth-success" style="display:none"></div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="switchTab('login')">Sign In</button>
+      <button class="auth-tab" onclick="switchTab('signup')">Sign Up</button>
+    </div>
+
+    <!-- Login Form -->
+    <form id="loginForm" onsubmit="handleLogin(event)">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="loginEmail" placeholder="you@example.com" required>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="loginPassword" placeholder="Your password" required>
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:.5rem">Sign In →</button>
+    </form>
+
+    <!-- Signup Form -->
+    <form id="signupForm" onsubmit="handleSignup(event)" style="display:none">
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="signupEmail" placeholder="you@example.com" required>
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <input type="password" id="signupPassword" placeholder="At least 6 characters" required minlength="6">
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:.5rem">Create Account →</button>
+    </form>
+  </div>
+</div>
+
+<!-- CONTACTS PAGE (Protected) -->
+<div id="contactsPage" style="display:none">
+  <div class="app">
+    <div class="app-header">
+      <h1>My <span>Contacts</span></h1>
+      <div class="header-actions">
+        <span class="user-email" id="userEmail"></span>
+        <button class="btn btn-primary btn-sm" onclick="openAddModal()">+ Add Contact</button>
+        <button class="btn btn-ghost btn-sm" onclick="handleLogout()">Logout</button>
+      </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats">
+      <div class="stat"><div class="stat-num" id="totalCount">0</div><div class="stat-label">Total Contacts</div></div>
+      <div class="stat"><div class="stat-num" id="todayCount">0</div><div class="stat-label">Added Today</div></div>
+      <div class="stat"><div class="stat-num" id="emailCount">0</div><div class="stat-label">Have Email</div></div>
+    </div>
+
+    <!-- Search -->
+    <div class="search-bar">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="searchInput" placeholder="Search contacts by name, email, or phone..." oninput="filterContacts()">
+      <span class="count" id="contactCount"></span>
+    </div>
+
+    <!-- Table -->
+    <div id="contactsList">
+      <div class="loading"><div class="spinner"></div>Loading contacts...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ADD/EDIT MODAL -->
+<div class="modal-overlay" id="contactModal">
+  <div class="modal">
+    <h2 id="modalTitle">Add New Contact</h2>
+    <form id="contactForm" onsubmit="handleSaveContact(event)">
+      <input type="hidden" id="contactId">
+      <div class="form-group">
+        <label>Name *</label>
+        <input type="text" id="contactName" placeholder="Full name" required>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Email</label>
+          <input type="email" id="contactEmail" placeholder="email@example.com">
+        </div>
+        <div class="form-group">
+          <label>Phone</label>
+          <input type="tel" id="contactPhone" placeholder="(555) 123-4567">
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveBtn">Save Contact</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- DELETE CONFIRM MODAL -->
+<div class="modal-overlay" id="deleteModal">
+  <div class="modal">
+    <h2>Delete Contact</h2>
+    <p style="color:var(--text2);font-size:.88rem;margin-bottom:1rem">Are you sure you want to delete <strong id="deleteName"></strong>? This can't be undone.</p>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeDeleteModal()">Cancel</button>
+      <button class="btn btn-danger" id="confirmDeleteBtn" onclick="confirmDelete()">Delete</button>
+    </div>
+  </div>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================
+// SUPABASE CONFIG — REPLACE WITH YOUR VALUES
+// ============================================
+const SUPABASE_URL = 'https://tlpgqblmmxcnqmesibvi.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRscGdxYmxtbXhjbnFtZXNpYnZpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE0NDg0MjYsImV4cCI6MjA4NzAyNDQyNn0.tHrOCJV-PC1nknKPMp5eJByJRGAW8zrRAtyurbCOmpQ';
+
+if (!window.supabase) {
+  document.getElementById('authPage').style.display = '';
+  document.querySelector('.auth-card .subtitle').textContent = '';
+  document.querySelector('.auth-card h1').textContent = 'Connection Error';
+  document.getElementById('authError').textContent = 'Could not load the app. Please check your internet connection and refresh the page.';
+  document.getElementById('authError').style.display = '';
+  document.getElementById('loginForm').style.display = 'none';
+  document.querySelector('.auth-tabs').style.display = 'none';
+  throw new Error('Supabase CDN failed to load');
+}
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ============================================
+// STATE
+// ============================================
+let allContacts = [];
+let deleteId = null;
+let realtimeSetup = false;
+let isLoading = false;
+
+// ============================================
+// AUTH FUNCTIONS
+// ============================================
+function switchTab(tab) {
+  document.querySelectorAll('.auth-tab').forEach(t => t.classList.remove('active'));
+  if (tab === 'login') {
+    document.querySelectorAll('.auth-tab')[0].classList.add('active');
+    document.getElementById('loginForm').style.display = '';
+    document.getElementById('signupForm').style.display = 'none';
+  } else {
+    document.querySelectorAll('.auth-tab')[1].classList.add('active');
+    document.getElementById('loginForm').style.display = 'none';
+    document.getElementById('signupForm').style.display = '';
+  }
+  hideAuthMessages();
+}
+
+async function handleLogin(e) {
+  e.preventDefault();
+  hideAuthMessages();
+  const email = document.getElementById('loginEmail').value;
+  const password = document.getElementById('loginPassword').value;
+
+  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+  if (error) {
+    showAuthError(error.message);
+  } else {
+    showApp(data.user);
+  }
+}
+
+async function handleSignup(e) {
+  e.preventDefault();
+  hideAuthMessages();
+  const email = document.getElementById('signupEmail').value;
+  const password = document.getElementById('signupPassword').value;
+
+  const { data, error } = await supabase.auth.signUp({ email, password });
+
+  if (error) {
+    showAuthError(error.message);
+  } else {
+    showAuthSuccess('Account created! You can now sign in.');
+    switchTab('login');
+  }
+}
+
+async function handleLogout() {
+  await supabase.auth.signOut();
+  document.getElementById('authPage').style.display = '';
+  document.getElementById('contactsPage').style.display = 'none';
+}
+
+function showAuthError(msg) {
+  const el = document.getElementById('authError');
+  el.textContent = msg;
+  el.style.display = '';
+}
+
+function showAuthSuccess(msg) {
+  const el = document.getElementById('authSuccess');
+  el.textContent = msg;
+  el.style.display = '';
+}
+
+function hideAuthMessages() {
+  document.getElementById('authError').style.display = 'none';
+  document.getElementById('authSuccess').style.display = 'none';
+}
+
+// ============================================
+// APP INIT — Check if user is logged in
+// ============================================
+async function init() {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session) {
+    showApp(session.user);
+  }
+
+  // Listen for auth changes
+  supabase.auth.onAuthStateChange((event, session) => {
+    if (event === 'SIGNED_OUT') {
+      document.getElementById('authPage').style.display = '';
+      document.getElementById('contactsPage').style.display = 'none';
+    }
+  });
+}
+
+function showApp(user) {
+  document.getElementById('authPage').style.display = 'none';
+  document.getElementById('contactsPage').style.display = '';
+  document.getElementById('userEmail').textContent = user.email;
+  loadContacts();
+  setupRealtime();
+}
+
+// ============================================
+// CRUD OPERATIONS
+// ============================================
+
+// READ — Load all contacts
+async function loadContacts() {
+  if (isLoading) return;
+  isLoading = true;
+  try {
+    const { data, error } = await supabase
+      .from('contacts')
+      .select('*')
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      showToast('Error loading contacts: ' + error.message, 'error');
+      return;
+    }
+
+    allContacts = data || [];
+    renderContacts(allContacts);
+    updateStats();
+  } finally {
+    isLoading = false;
+  }
+}
+
+// CREATE — Add new contact
+async function createContact(name, email, phone) {
+  const { data, error } = await supabase
+    .from('contacts')
+    .insert([{ name, email, phone }])
+    .select();
+
+  if (error) {
+    showToast('Error adding contact: ' + error.message, 'error');
+    return false;
+  }
+
+  showToast('Contact added!', 'success');
+  await loadContacts();
+  return true;
+}
+
+// UPDATE — Edit existing contact
+async function updateContact(id, name, email, phone) {
+  const { data, error } = await supabase
+    .from('contacts')
+    .update({ name, email, phone })
+    .eq('id', id)
+    .select();
+
+  if (error) {
+    showToast('Error updating contact: ' + error.message, 'error');
+    return false;
+  }
+
+  showToast('Contact updated!', 'success');
+  await loadContacts();
+  return true;
+}
+
+// DELETE — Remove contact
+async function deleteContact(id) {
+  const { error } = await supabase
+    .from('contacts')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    showToast('Error deleting contact: ' + error.message, 'error');
+    return false;
+  }
+
+  showToast('Contact deleted', 'success');
+  await loadContacts();
+  return true;
+}
+
+// ============================================
+// REAL-TIME SUBSCRIPTION
+// ============================================
+function setupRealtime() {
+  if (realtimeSetup) return;
+  realtimeSetup = true;
+  supabase
+    .channel('contacts-changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'contacts' }, () => {
+      loadContacts();
+    })
+    .subscribe();
+}
+
+// ============================================
+// RENDER UI
+// ============================================
+function renderContacts(contacts) {
+  const container = document.getElementById('contactsList');
+  document.getElementById('contactCount').textContent = contacts.length + ' contacts';
+
+  if (contacts.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">📇</div>
+        <h3>No contacts yet</h3>
+        <p>Add your first contact to get started!</p>
+        <button class="btn btn-primary" onclick="openAddModal()">+ Add Contact</button>
+      </div>`;
+    return;
+  }
+
+  let html = '<div class="table-wrap"><table class="contacts-table"><thead><tr>';
+  html += '<th>Name</th><th>Email</th><th>Phone</th><th>Added</th><th>Actions</th>';
+  html += '</tr></thead><tbody>';
+
+  contacts.forEach(c => {
+    const date = c.created_at ? new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—';
+    html += `<tr>
+      <td class="contact-name">${escapeHtml(c.name)}</td>
+      <td class="contact-email">${c.email ? escapeHtml(c.email) : '<span style="color:var(--muted)">—</span>'}</td>
+      <td class="contact-phone">${c.phone ? escapeHtml(c.phone) : '<span style="color:var(--muted)">—</span>'}</td>
+      <td class="contact-date">${date}</td>
+      <td class="contact-actions">
+        <button class="btn btn-ghost btn-sm" onclick='openEditModal(${JSON.stringify(c).replace(/'/g, "&#39;")})'>Edit</button>
+        <button class="btn btn-danger btn-sm" onclick='openDeleteModal(${c.id}, ${JSON.stringify(c.name).replace(/'/g, "&#39;")})'>Delete</button>
+      </td>
+    </tr>`;
+  });
+
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
+function updateStats() {
+  document.getElementById('totalCount').textContent = allContacts.length;
+
+  const today = new Date().toDateString();
+  const todayCount = allContacts.filter(c => c.created_at && new Date(c.created_at).toDateString() === today).length;
+  document.getElementById('todayCount').textContent = todayCount;
+
+  const emailCount = allContacts.filter(c => c.email && c.email.trim()).length;
+  document.getElementById('emailCount').textContent = emailCount;
+}
+
+// ============================================
+// SEARCH / FILTER
+// ============================================
+function filterContacts() {
+  const query = document.getElementById('searchInput').value.toLowerCase().trim();
+  if (!query) {
+    renderContacts(allContacts);
+    return;
+  }
+
+  const filtered = allContacts.filter(c => {
+    return (c.name && c.name.toLowerCase().includes(query)) ||
+           (c.email && c.email.toLowerCase().includes(query)) ||
+           (c.phone && c.phone.toLowerCase().includes(query));
+  });
+
+  renderContacts(filtered);
+}
+
+// ============================================
+// MODALS
+// ============================================
+function openAddModal() {
+  document.getElementById('modalTitle').textContent = 'Add New Contact';
+  document.getElementById('saveBtn').textContent = 'Save Contact';
+  document.getElementById('contactId').value = '';
+  document.getElementById('contactName').value = '';
+  document.getElementById('contactEmail').value = '';
+  document.getElementById('contactPhone').value = '';
+  document.getElementById('contactModal').classList.add('show');
+  document.getElementById('contactName').focus();
+}
+
+function openEditModal(contact) {
+  document.getElementById('modalTitle').textContent = 'Edit Contact';
+  document.getElementById('saveBtn').textContent = 'Update Contact';
+  document.getElementById('contactId').value = contact.id;
+  document.getElementById('contactName').value = contact.name || '';
+  document.getElementById('contactEmail').value = contact.email || '';
+  document.getElementById('contactPhone').value = contact.phone || '';
+  document.getElementById('contactModal').classList.add('show');
+  document.getElementById('contactName').focus();
+}
+
+function closeModal() {
+  document.getElementById('contactModal').classList.remove('show');
+}
+
+function openDeleteModal(id, name) {
+  deleteId = id;
+  document.getElementById('deleteName').textContent = name;
+  document.getElementById('deleteModal').classList.add('show');
+}
+
+function closeDeleteModal() {
+  document.getElementById('deleteModal').classList.remove('show');
+  deleteId = null;
+}
+
+async function handleSaveContact(e) {
+  e.preventDefault();
+  const btn = document.getElementById('saveBtn');
+  if (btn.disabled) return;
+
+  const id = document.getElementById('contactId').value;
+  const name = document.getElementById('contactName').value.trim();
+  const email = document.getElementById('contactEmail').value.trim();
+  const phone = document.getElementById('contactPhone').value.trim();
+
+  if (!name) return;
+
+  // Validate email format if provided
+  if (email && !email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+    showToast('Please enter a valid email address', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  let success;
+  try {
+    if (id) {
+      success = await updateContact(parseInt(id), name, email, phone);
+    } else {
+      success = await createContact(name, email, phone);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = id ? 'Update Contact' : 'Save Contact';
+  }
+
+  if (success) {
+    closeModal();
+  }
+}
+
+async function confirmDelete() {
+  if (!deleteId) return;
+  const btn = document.getElementById('confirmDeleteBtn');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = 'Deleting...';
+  try {
+    await deleteContact(deleteId);
+    closeDeleteModal();
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Delete';
+  }
+}
+
+// ============================================
+// HELPERS
+// ============================================
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function showToast(message, type) {
+  const toast = document.getElementById('toast');
+  toast.textContent = message;
+  toast.className = 'toast ' + type + ' show';
+  setTimeout(() => { toast.classList.remove('show'); }, 3000);
+}
+
+// Close modals on overlay click
+document.getElementById('contactModal').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+document.getElementById('deleteModal').addEventListener('click', function(e) {
+  if (e.target === this) closeDeleteModal();
+});
+
+// ESC to close modals
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    closeModal();
+    closeDeleteModal();
+  }
+});
+
+// Start the app
+init();
+</script>
+</body>
+</html>
